@@ -1,0 +1,9 @@
+mac_build/build*
+msw_build/build*
+mac_build/MacLuaCon.xcodeproj/project.xcworkspace
+mac_build/MacLuaCon.xcodeproj/*.mode1v3
+mac_build/MacLuaCon.xcodeproj/*.pbxuser
+mac_build/MacLuaCon.xcodeproj/xcuserdata
+*/.DS_Store
+.DS_Store
+
