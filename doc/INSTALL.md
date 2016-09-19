@@ -11,10 +11,10 @@ Raspbian Jessie (カーネルバージョン 4.4 以降) が必要です。NOOBS
 * 適当なディレクトリで展開する。
 * `luacon` というディレクトリが生成されるので、*そのディレクトリに移動して*、`./luacon` で起動。
 
-    $ wget https://github.com/toshinagata/luaconsole/raw/master/binaries/luacon_raspi.tar.gz
-    $ tar xvfz luacon_raspi.tar.gz
-    $ cd luacon
-    $ ./luacon
+    \$ wget https://github.com/toshinagata/luaconsole/raw/master/binaries/luacon_raspi.tar.gz
+    \$ tar xvfz luacon_raspi.tar.gz
+    \$ cd luacon
+    \$ ./luacon
 
 * *注意！* 起動時に `/dev/fb1` が存在していると、そのデバイスが出力先として選択されます。起動しても何も表示されない時は、出力デバイスの設定を確認してください。
 
@@ -42,4 +42,4 @@ Raspbian Jessie (カーネルバージョン 4.4 以降) が必要です。NOOBS
 
 スプライト風の描画サンプルです。ちらつきが激しいのはご勘弁ください。また、このサンプルでは `con.gmode(1)` を指定しています。`con.gmode()` は、`/dev/fb0` と `/dev/fb1` を切り替える機能を持っています（パソコン版では、単に画面を拡大表示するだけです）。このへんの機能はあまり整理されていないので、そのうち仕様を変更するかもしれません。
 
-## [トップページに戻る](../README.md)
+[\[トップページに戻る\]](../README.md)
