@@ -18,6 +18,11 @@
 /*  For GPIO  */
 #include <wiringPi.h>
 
+/*  For SPI  */
+#include <fcntl.h>
+#include <sys/ioctl.h>
+#include <linux/spi/spidev.h>
+
 /*  For touchpanel  */
 #include <linux/input.h>
 
@@ -603,6 +608,197 @@ luaopen_gpio(lua_State *L)
 }
 
 #if 0
+#pragma mark ====== SPI ======
+#endif
+
+/*  For spi0.1...spi1.2  */
+static int s_spi_fd[6] = {-1, -1, -1, -1, -1, -1};
+static int s_spi_speed[6];
+static int s_spi_mode[6];
+static int s_spi_bpw[6];
+
+static int
+l_spi_checkchannel(int ch)
+{
+	switch (ch) {
+		case 0: case 1: case 2: break;
+		case 10: case 11: case 12: ch -= 7; break;
+		default:
+			return luaL_error(gL, "SPI channel must be 0/1/2 or 10/11/12 but %d is given", ch);
+	}
+	return ch;
+}
+
+/*  spi.setup(channel, speed, mode=0, bpw=8))  */
+static int
+l_spi_setup(lua_State *L)
+{
+	int n, ch, channel, speed, mode, bpw;
+	char dname[16];
+	channel = luaL_checkinteger(L, 1);
+	speed = luaL_checkinteger(L, 2);
+	n = lua_gettop(L);
+	mode = 0;
+	bpw = 8;
+	if (n >= 3) {
+		mode = luaL_checkinteger(L, 3);
+		if (n >= 4) {
+			bpw = luaL_checkinteger(L, 4);
+		}
+	}
+	ch = l_spi_checkchannel(channel);
+	if (s_spi_fd[ch] < 0) {
+		snprintf(dname, sizeof(dname), "/dev/spidev%d.%d", ch / 3, ch % 3);
+		n = open(dname, O_RDWR);
+		if (n < 0)
+			return luaL_error(L, "Cannot open SPI device %s", dname);
+	} else n = s_spi_fd[ch];
+	if (ioctl(n, SPI_IOC_WR_MODE, &mode) < 0) {
+		close(n);
+		return luaL_error(L, "Cannot set SPI write mode");
+	}
+	if (ioctl(n, SPI_IOC_WR_BITS_PER_WORD, &bpw) < 0) {
+		close(n);
+		return luaL_error(L, "Cannot set SPI write bits-per-word");
+	}
+	if (ioctl(n, SPI_IOC_WR_MAX_SPEED_HZ, &speed) < 0) {
+		close(n);
+		return luaL_error(L, "Cannot set SPI write speed");
+	}
+	if (ioctl(n, SPI_IOC_RD_MODE, &mode) < 0) {
+		close(n);
+		return luaL_error(L, "Cannot set read SPI mode");
+	}
+	if (ioctl(n, SPI_IOC_RD_BITS_PER_WORD, &bpw) < 0) {
+		close(n);
+		return luaL_error(L, "Cannot set SPI read bits-per-word");
+	}
+	if (ioctl(n, SPI_IOC_RD_MAX_SPEED_HZ, &speed) < 0) {
+		close(n);
+		return luaL_error(L, "Cannot set SPI read speed");
+	}
+	s_spi_fd[ch] = n;
+	s_spi_speed[ch] = speed;
+	s_spi_mode[ch] = mode;
+	s_spi_bpw[ch] = bpw;
+	return 0;
+}
+
+/*  Internal routine for SPI read/write; flag = 1: read, 2: write, 3: both  */
+static int
+l_spi_readwrite_sub(lua_State *L, int flag)
+{
+	int ch, channel, i;
+	unsigned int length, len;
+	unsigned char *p;
+	struct spi_ioc_transfer tr;
+	channel = luaL_checkinteger(L, 1);
+	luaL_checktype(L, 2, LUA_TTABLE);
+	length = luaL_checkinteger(L, 3);
+	ch = l_spi_checkchannel(channel);
+	if (length < 32) {
+		p = alloca(length * 2);
+	} else {
+		p = malloc(length * 2);
+	}
+	if (p == NULL)
+		luaL_error(L, "Cannot allocate SPI buffer");
+	len = lua_rawlen(L, 2);
+	if (flag & 2) {
+		for (i = 1; i <= length; i++) {
+			char c;
+			if (i > len)
+				c = 0;
+			else {
+				lua_rawgeti(L, 2, i);
+				c = luaL_checkinteger(L, -1);
+				lua_pop(L, 1);
+			}
+			p[i - 1] = c;
+		}
+	} else {
+		memset(p, 0, length);
+	}
+	memset(&tr, 0, sizeof(tr));
+	tr.tx_buf = (unsigned long)p;
+	tr.rx_buf = (unsigned long)(p + length);
+	tr.len = length;
+	tr.delay_usecs = 0;
+	tr.speed_hz = s_spi_speed[ch];
+	tr.bits_per_word = s_spi_bpw[ch];
+	tr.cs_change = 0;
+	if (ioctl(s_spi_fd[ch], SPI_IOC_MESSAGE(1), &tr) < 0) {
+		lua_pushinteger(L, 1);
+		return 1;
+	}
+	if (flag & 1) {
+		for (i = 1; i <= length; i++) {
+			lua_pushinteger(L, (unsigned char)p[i + length - 1]);
+			lua_rawseti(L, 2, i);
+		}
+	}
+	if (length >= 32)
+		free(p);
+	lua_pushinteger(L, 0);
+	return 1;
+}
+
+/*  spi.read(channel, table, length)  */
+static int
+l_spi_read(lua_State *L)
+{
+	return l_spi_readwrite_sub(L, 1);
+}
+
+/*  spi.write(channel, table, length)  */
+static int
+l_spi_write(lua_State *L)
+{
+	return l_spi_readwrite_sub(L, 2);
+}
+
+/*  spi.readwrite(channel, table, length)  */
+static int
+l_spi_readwrite(lua_State *L)
+{
+	return l_spi_readwrite_sub(L, 3);
+}
+
+/*  spi.close(channel)  */
+static int
+l_spi_close(lua_State *L)
+{
+	int ch, channel;
+	channel = luaL_checkinteger(L, 1);
+	ch = l_spi_checkchannel(channel);
+	if (s_spi_fd[ch] < 0)
+		return luaL_error(L, "SPI channel %d is not opened", channel);
+	close(s_spi_fd[ch]);
+	s_spi_fd[ch] = -1;
+	return 0;
+}
+
+static const struct luaL_Reg spi_lib[] = {
+	{"setup", l_spi_setup},
+	{"read", l_spi_read},
+	{"write", l_spi_write},
+	{"readwrite", l_spi_readwrite},
+	{"close", l_spi_close},
+	{NULL, NULL}
+};
+
+int
+luaopen_spi(lua_State *L) 
+{
+#if LUA_VERSION_NUM >= 502
+	luaL_newlib(L, spi_lib);
+#else
+	luaL_register(L, "spi", spi_lib);
+#endif
+	return 1;
+}
+
+#if 0
 #pragma mark ====== main ======
 #endif
 
@@ -611,6 +807,7 @@ lua_setup_platform(lua_State *L)
 {
 	luaL_requiref(L, "tp", luaopen_tp, 1);
 	luaL_requiref(L, "gpio", luaopen_gpio, 1);
+	luaL_requiref(L, "spi", luaopen_spi, 1);
 	return 0;
 }
 
